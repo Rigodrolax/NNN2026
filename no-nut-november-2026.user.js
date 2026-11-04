@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         No Nut November 2026 – Koh-Lanta
 // @namespace    https://jvscript.fr/
-// @version      3.5.1
+// @version      3.7.4
+// @updateURL    https://raw.githubusercontent.com/Rigodrolax/NNN2026/main/no-nut-november-2026.user.js
+// @downloadURL  https://raw.githubusercontent.com/Rigodrolax/NNN2026/main/no-nut-november-2026.user.js
 // @description  Régiments, matricules, éliminés, compteur de messages et OP pour le topic officiel No Nut November 2026 (jeuxvideo.com). Détection des défaites, classements, pastilles dans citations/mentions. Compatible JVChat.
 // @author       Toi
 // @match        https://www.jeuxvideo.com/forums/*-77479206-*
@@ -34,7 +36,19 @@
   const SHEET_REFRESH_MS = 45 * 1000;       // relecture du GDOC (toutes les ~minutes + au retour sur l'onglet)
   const COUNT_REFRESH_MS = 60 * 1000;       // mise à jour des dernières pages
   const POO_USERS = new Set(['brigadeantiporn', 'homme_cinema971']);
+  // petites horloges animées (SVG avec aiguilles qui tournent, utilisable en <img> ou en fond d'écran)
+  const clockUri = (rim, face, ink, a0, secDur) => {
+    const hand = (len, w, col, dur, from, tail) => `<line x1='50' y1='${50 + tail}' x2='50' y2='${50 - len}' stroke='${col}' stroke-width='${w}' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='${from} 50 50' to='${from + 360} 50 50' dur='${dur}s' repeatCount='indefinite'/></line>`;
+    let ticks = ''; for (let i = 0; i < 60; i++) { const big = i % 5 === 0; ticks += `<line x1='50' y1='${big ? 11 : 12}' x2='50' y2='${big ? 19 : 15}' stroke='${ink}' stroke-width='${big ? 2.6 : .9}' stroke-linecap='round' transform='rotate(${i * 6} 50 50)'/>`; }
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='r' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#fff'/><stop offset='.45' stop-color='${rim}'/><stop offset='1' stop-color='#2a0d12'/></linearGradient><radialGradient id='f' cx='.4' cy='.35' r='.8'><stop offset='0' stop-color='${face}'/><stop offset='1' stop-color='#cdb88a'/></radialGradient></defs><circle cx='50' cy='50' r='48' fill='url(#r)' stroke='#1a0a0c' stroke-width='1.5'/><circle cx='50' cy='50' r='42' fill='url(#f)' stroke='#4a1018' stroke-width='2.4'/>${ticks}${hand(24, 4.6, ink, 90, a0, 6)}${hand(35, 3, ink, 8, a0 * 3, 8)}${hand(38, 1.4, '#b01020', secDur, 0, 12)}<circle cx='50' cy='50' r='4.2' fill='url(#r)' stroke='#1a0a0c' stroke-width='1'/></svg>`;
+    return 'data:image/svg+xml,' + encodeURIComponent(svg);
+  };
+  const CLOCKS = {
+    a: clockUri('#c9ccd2', '#f4ead0', '#2a1a14', 40, 2.4), b: clockUri('#8a1c2c', '#f6ecd2', '#2a1a14', 200, 3),
+    c: clockUri('#a8adb5', '#efe2c0', '#2a1a14', 120, 1.8), d: clockUri('#6e1220', '#f1e5c6', '#2a1a14', 300, 3.6),
+  };
   const FOOT_USERS = new Set(['levodpa2']);
+  const CLOCK_USERS = new Set(['prolissou']);         // thème « horloges » (mème : il donne le temps restant en secondes)
   const KING_USERS = new Set(['kaaido']);           // ancien organisateur : thème « Hall of Fame »
   // Médaillons des éditions (dessins originaux, inspirés des diplômes de chaque édition)
   const medal = (year, rib, body, tip) => `<svg class="nnn-medal" viewBox="0 0 48 60" role="img" aria-label="${tip}"><title>${tip}</title><path d="M13 38 8 58l8-5 5 6 5-19z" fill="${rib}" stroke="#1d1208" stroke-width=".9" stroke-linejoin="round"/><path d="M35 38l5 20-8-5-5 6-5-19z" fill="${rib}" stroke="#1d1208" stroke-width=".9" stroke-linejoin="round"/><path d="M13 38 8 58l8-5" fill="#000" opacity=".18"/><circle cx="24" cy="24" r="22" fill="url(#nnG)" stroke="#5a3a08" stroke-width="1"/><circle cx="24" cy="24" r="18.9" fill="none" stroke="#5a3a08" stroke-width=".8" opacity=".7"/>${body}<rect x="10" y="37" width="28" height="10.4" rx="2.4" fill="#1a120a" stroke="url(#nnG)" stroke-width="1.2"/><text x="24" y="45" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="8.4" fill="#f3d27a" letter-spacing=".4">${year}</text></svg>`;
@@ -154,6 +168,7 @@
   let kingOn = GM_getValue('kingOn', true);        // thème « Fondateur » pour Kaaido
   let opOn = GM_getValue('opOn', true);            // thème étendu de l'OP (Isssoufle)
   let settingsOpen = false;
+  let clockOn = GM_getValue('clockOn', true);      // thème « horloges » pour Prolissou
   let footOn = GM_getValue('footOn', true);        // thème « pieds » pour Levodpa2
   let sheetReport = GM_getValue('sheetReport', '');
   let gdocInfo = '';
@@ -656,6 +671,30 @@
   .nnn-bud.dead b{text-decoration:line-through;opacity:.7}
   .nnn-bud i{font-style:normal;font-size:10px}
   .nnn-bud-w{display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px 1px 4px;border-radius:999px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14)}
+ .nnn-cel{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 30%,rgba(24,30,80,.93),rgba(3,5,18,.97) 70%);color:#fff;outline:0;animation:nnn-cel-in .8s ease both;overflow:auto}
+  @keyframes nnn-cel-in{from{opacity:0}to{opacity:1}}
+  .nnn-cel canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .nnn-cel .in{position:relative;z-index:1;max-width:900px;width:100%;margin:auto;padding:28px 18px;text-align:center;font-family:${F_UI}}
+  .nnn-cel .logos{display:flex;justify-content:center;gap:14px;margin-bottom:14px}
+  .nnn-cel .logos img{width:54px;height:54px;border-radius:50%;filter:drop-shadow(0 0 10px rgba(255,200,80,.6));animation:nnn-cel-pop .7s ease both}
+  .nnn-cel .logos img:nth-child(2){animation-delay:.12s}.nnn-cel .logos img:nth-child(3){animation-delay:.24s}.nnn-cel .logos img:nth-child(4){animation-delay:.36s}
+  @keyframes nnn-cel-pop{from{transform:scale(0) rotate(-90deg)}to{transform:none}}
+  .nnn-cel h1{margin:0;font:400 clamp(26px,5.4vw,58px)/1.12 ${F_LOGO};letter-spacing:2px;text-shadow:0 3px 0 #000,0 0 28px rgba(255,190,60,.35);animation:nnn-cel-rise 1s .3s ease both}
+  .nnn-cel h1 span{display:block;color:#fff}
+  .nnn-cel h1 em{display:block;font-style:normal;margin-top:6px;font-size:1.28em;color:#ffd34d;text-shadow:0 3px 0 #7a4a08,0 0 26px rgba(255,190,60,.6)}
+  @keyframes nnn-cel-rise{from{opacity:0;transform:translateY(24px) scale(.94)}to{opacity:1;transform:none}}
+  .nnn-cel .sub{margin:16px 0 0;font:700 clamp(13px,2vw,17px) ${F_UI};letter-spacing:.5px;color:#f0cf8a;animation:nnn-cel-rise 1s .6s ease both}
+  .nnn-cel .stats{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:20px 0 6px;animation:nnn-cel-rise 1s .9s ease both}
+  .nnn-cel .b{min-width:130px;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid var(--c,rgba(255,255,255,.18));backdrop-filter:blur(4px)}
+  .nnn-cel .b b{display:block;font:400 34px/1 ${F_LOGO};color:#ffd34d;text-shadow:0 2px 0 #000}
+  .nnn-cel .b img{width:38px;height:38px;border-radius:50%;display:block;margin:0 auto 4px}
+  .nnn-cel .b small{display:block;font:600 11px/1.3 ${F_UI};opacity:.85;margin-top:3px}
+  .nnn-cel .bud{margin-top:12px;font:600 14px ${F_UI};color:#cfe6ff;animation:nnn-cel-rise 1s 1.1s ease both}
+  .nnn-cel .btns{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:22px;animation:nnn-cel-rise 1s 1.2s ease both}
+  .nnn-cel .btns button{cursor:pointer;border:2px solid rgba(255,255,255,.25);border-radius:10px;background:rgba(255,255,255,.09);color:#fff;padding:9px 16px;font:700 13px ${F_UI}}
+  .nnn-cel .btns button:hover{background:rgba(255,255,255,.18)}
+  .nnn-cel .btns .pri{background:linear-gradient(#ffe38a,#d9a02a);color:#2a1a04;border-color:#7a5210}
+  .nnn-cel .pv{margin-top:14px;font:600 11px ${F_UI};opacity:.6}
   /* ---- Plage des éteints ---- */
   .nnn-wmode{display:flex;gap:6px;margin:10px 0 8px}
   .nnn-wmode button{flex:1;cursor:pointer;border:2px solid #0e0803;border-radius:8px;padding:6px;font:800 12px ${F_UI};background:#2a1d10;color:#e8c27a}
@@ -821,6 +860,35 @@
   .nnn-confetti i{position:absolute;top:-14px;width:8px;height:14px;opacity:0;animation:nnn-fall linear 1 forwards}
   @keyframes nnn-fall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(560px) rotate(720deg);opacity:0}}
 
+
+  /* =============== THÈME HORLOGES (Prolissou) =============== */
+  .nnn-clock-ico{width:26px;height:26px;flex:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+  .nnn-clock-ico.big{width:34px;height:34px}
+  .nnn-clock-name{font-weight:900;text-shadow:0 1px 0 #2a0d12,0 0 8px rgba(255,190,90,.55)}
+  .nnn-clock-plate{font:800 10px/1 ${F_UI};letter-spacing:.8px;padding:4px 9px;border-radius:4px;background:linear-gradient(#e9c98a,#b8873f);color:#3a1208;border:1px solid #5a2a0c;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.35);box-shadow:inset 0 0 0 1px rgba(255,235,190,.5)}
+  .nnn-clock-msg{position:relative!important;
+    background:
+      url("${CLOCKS.c}") no-repeat right 100px bottom 10px/40px 40px,
+      url("${CLOCKS.d}") no-repeat right 54px bottom -14px/68px 68px,
+      url("${CLOCKS.c}") no-repeat right 256px bottom 6px/26px 26px,
+      url("${CLOCKS.a}") no-repeat right 410px bottom 8px/44px 44px,
+      url("${CLOCKS.c}") no-repeat right 548px bottom -6px/54px 54px,
+      url("${CLOCKS.a}") no-repeat right 700px bottom 10px/28px 28px,
+      url("${CLOCKS.c}") no-repeat right 150px bottom 50px/22px 22px,
+      repeating-linear-gradient(90deg,rgba(0,0,0,.28) 0 2px,transparent 2px 46px),
+      repeating-linear-gradient(90deg,rgba(255,200,120,.05) 0 7px,transparent 7px 23px),
+      radial-gradient(ellipse 80% 160% at 0% 0%,rgba(255,170,70,.28),transparent 66%),
+      linear-gradient(135deg,#3b2112,#4a2a17 55%,#2a160b) !important;
+    border-color:#b8873f !important;
+    box-shadow:inset 0 0 0 1px #8a1c2c,inset 0 0 44px rgba(0,0,0,.35),0 0 14px rgba(184,135,63,.35) !important}
+  .nnn-clock-msg *:not(.nnn-line):not(.nnn-line *){color:#f6e7c8!important}
+  .nnn-clock-msg :is(.messageUser__msg,.txt-msg,.jvchat-content) a{color:#ffcf7a!important;text-decoration:underline dotted #ffcf7a!important}
+  .nnn-clock-msg :is(.messageUser__date,.bloc-date-msg,.jvchat-date) a,.nnn-clock-msg a:is(.messageUser__date,.bloc-date-msg){text-decoration:none!important}
+  .nnn-clock-msg blockquote{background:rgba(255,255,255,.07)!important;border-left:4px solid #b8873f!important}
+  .nnn-clock-msg .messageUser__msg::after,.nnn-clock-msg .txt-msg::after{content:" 🤠";font-size:15px}
+  .nnn-clock-msg.nnn-is-dead .nnn-clone{filter:none;opacity:1}
+  .nnn-clock-msg.nnn-is-dead .messageUser__msg,.nnn-clock-msg.nnn-is-dead .txt-msg,.nnn-clock-msg.nnn-is-dead .jvchat-content{filter:none;opacity:1}
+
   /* =============== THÈME PIEDS (Levodpa2) =============== */
   @keyframes nnn-wiggle{0%,100%{transform:rotate(var(--r,0deg))}50%{transform:rotate(calc(var(--r,0deg) + 9deg))}}
   .nnn-foot-ico{width:auto;height:34px;object-fit:contain;--r:-10deg;transform-origin:50% 92%;animation:nnn-wiggle 2.6s ease-in-out infinite;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
@@ -916,26 +984,27 @@
   const isPoo = (p) => pooOn && POO_USERS.has(p);
   const isFoot = (p) => footOn && FOOT_USERS.has(p);
   const isKing = (p) => kingOn && KING_USERS.has(p);
-  const fancy = (p) => (isPoo(p) ? '💩 ' + esc(disp(p)) + ' 💩' : isFoot(p) ? '🦶 ' + esc(disp(p)) + ' 🦶' : isKing(p) ? '⚜ ' + esc(disp(p)) : esc(disp(p)));
+  const isClock = (p) => clockOn && CLOCK_USERS.has(p);
+  const fancy = (p) => (isClock(p) ? '⏱ ' + esc(disp(p)) + ' ⏱' : isPoo(p) ? '💩 ' + esc(disp(p)) + ' 💩' : isFoot(p) ? '🦶 ' + esc(disp(p)) + ' 🦶' : isKing(p) ? '⚜ ' + esc(disp(p)) : esc(disp(p)));
   const isKnown = (p) => !!(sheetData[p] || overrides[p]);
 
   function tagify(el, pseudo) {
     const info = infoFor(pseudo);
     const reg = info.regiment ? REGIMENTS[info.regiment] : null;
     const gold = pseudo === OP_PSEUDO;
-    const poo = isPoo(pseudo), foot = isFoot(pseudo), king = isKing(pseudo);
+    const poo = isPoo(pseudo), foot = isFoot(pseudo), king = isKing(pseudo), clk = isClock(pseudo);
     el.dataset.nnnP = pseudo;
     [...el.children].forEach((c) => { if (c.classList.contains('nnn-minilogo')) c.remove(); });
-    if (poo || foot || king || gold || reg) {
-      el.style.setProperty('color', poo ? '#8a5a1c' : (foot ? '#e0529f' : (king ? '#a87d14' : (gold ? '#FFD700' : reg.color))), 'important');
+    if (poo || foot || king || clk || gold || reg) {
+      el.style.setProperty('color', clk ? '#9a2234' : poo ? '#8a5a1c' : (foot ? '#e0529f' : (king ? '#a87d14' : (gold ? '#FFD700' : reg.color))), 'important');
       el.classList.add('nnn-pseudo-reg');
     } else {
       el.style.removeProperty('color');
       el.classList.remove('nnn-pseudo-reg');
     }
-    if (poo || foot || king) {
+    if (poo || foot || king || clk) {
       const e = document.createElement('span');
-      e.className = 'nnn-minilogo nnn-emoji'; e.textContent = poo ? '💩' : (foot ? '🦶' : '⚜️');
+      e.className = 'nnn-minilogo nnn-emoji'; e.textContent = clk ? '⏱️' : poo ? '💩' : (foot ? '🦶' : '⚜️');
       el.insertBefore(e, el.firstChild);
     } else if (reg || info.dead) {
       const img = document.createElement('img');
@@ -1079,7 +1148,7 @@
     Object.keys(overrides).forEach((k) => names.add(k));
     let rows = [...names].map((p) => ({ p, n: totals[p] || 0, info: infoFor(p), known: isKnown(p) }));
     const medals = ['🥇', '🥈', '🥉'];
-    const nameStyle = (r, reg) => isPoo(r.p) ? 'color:#7a4a12;font-weight:900' : isFoot(r.p) ? 'color:#c2338a;font-weight:900' : isKing(r.p) ? 'color:#a87d14;font-weight:900' : r.p === OP_PSEUDO ? 'color:#a8780a;font-weight:900;text-shadow:0 0 4px rgba(255,200,0,.5)' : (reg ? `color:${reg.color};font-weight:800;text-shadow:0 0 1px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.4)` : 'font-weight:700');
+    const nameStyle = (r, reg) => isClock(r.p) ? 'color:#8a1c2c;font-weight:900' : isPoo(r.p) ? 'color:#7a4a12;font-weight:900' : isFoot(r.p) ? 'color:#c2338a;font-weight:900' : isKing(r.p) ? 'color:#a87d14;font-weight:900' : r.p === OP_PSEUDO ? 'color:#a8780a;font-weight:900;text-shadow:0 0 4px rgba(255,200,0,.5)' : (reg ? `color:${reg.color};font-weight:800;text-shadow:0 0 1px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.4)` : 'font-weight:700');
     let podium = '', body = '';
     if (rankTab === 'member') {
       if (rankOnlyMembers) rows = rows.filter((r) => r.known);
@@ -1959,7 +2028,7 @@
     return msg;
   }
   function clearCard(c) {
-    c.classList.remove('nnn-is-dead', 'nnn-is-op', 'nnn-poo-msg', 'nnn-foot-msg', 'nnn-king-msg', 'nnn-op-msg');
+    c.classList.remove('nnn-is-dead', 'nnn-is-op', 'nnn-poo-msg', 'nnn-foot-msg', 'nnn-clock-msg', 'nnn-king-msg', 'nnn-op-msg');
     c.removeAttribute('data-nnn-reg'); c.style.removeProperty('--nnn-c');
   }
 
@@ -1989,7 +2058,7 @@
     const info = infoFor(pseudo);
     const reg = info.regiment ? REGIMENTS[info.regiment] : null;
     const isOP = pseudo === OP_PSEUDO;
-    const poo = isPoo(pseudo), foot = isFoot(pseudo), king = isKing(pseudo);
+    const poo = isPoo(pseudo), foot = isFoot(pseudo), king = isKing(pseudo), clk = isClock(pseudo);
 
     const mk = (tag, cls, html, title) => {
       const e = document.createElement(tag);
@@ -2002,6 +2071,7 @@
     // ---- à GAUCHE du pseudo : matricule, couronne
     if (poo) wrap.appendChild(mk('span', 'nnn-poo-e', '💩'));
     if (foot) { const fi = mk('img', 'nnn-foot-ico'); fi.src = PH.iconP; fi.alt = '🦶'; wrap.appendChild(fi); }
+    if (clk) { const ci = mk('img', 'nnn-clock-ico big'); ci.src = CLOCKS.c; ci.alt = '⏱'; wrap.appendChild(ci); }
     if (king) { const kc = mk('img', 'nnn-king-cam', undefined, 'Père fondateur'); kc.src = KING_CAMEO; kc.alt = '⚜'; wrap.appendChild(kc); }
     if (info.matricule) wrap.appendChild(mk('span', 'nnn-mat', '#' + esc(info.matricule), info.autoMat ? 'Matricule automatique (ordre du GDOC) — corrige-le avec ✎' : 'Matricule'));
     if (isOP) wrap.appendChild(mk('span', 'nnn-crown', '👑', 'Opérateur du topic'));
@@ -2014,6 +2084,9 @@
     if (poo) {
       clone.classList.add('nnn-poo-name');
       [clone, ...clone.querySelectorAll('*')].forEach((e) => e.style.setProperty('color', '#7a4a12', 'important'));
+    } else if (clk) {
+      clone.classList.add('nnn-clock-name');
+      [clone, ...clone.querySelectorAll('*')].forEach((e) => e.style.setProperty('color', '#ffd89a', 'important'));
     } else if (foot) {
       clone.classList.add('nnn-foot-name');
       [clone, ...clone.querySelectorAll('*')].forEach((e) => e.style.setProperty('color', '#ff8ccf', 'important'));
@@ -2029,6 +2102,9 @@
     wrap.appendChild(clone);
     { const bh = buddyHtml(pseudo, true); if (bh) wrap.appendChild(mk('span', 'nnn-bud-w', bh)); }
     if (poo) { wrap.appendChild(mk('span', 'nnn-poo-e', '💩')); wrap.appendChild(mk('span', 'nnn-poo-plate', '🚽 Chiottes publiques')); }
+    if (clk) {
+      wrap.appendChild(mk('span', 'nnn-clock-plate', '🤠 Le Maître du temps', 'Demandez-lui combien de secondes il reste…'));
+    }
     if (king) wrap.appendChild(mk('span', 'nnn-king-plate', '⚜ Père fondateur'));
     if (foot) { const fg = mk('img', 'nnn-foot-ico g'); fg.src = PH.iconG; fg.alt = '🦶'; wrap.appendChild(fg); wrap.appendChild(mk('span', 'nnn-foot-plate', '🦶 Club des pieds')); }
 
@@ -2087,6 +2163,7 @@
     card.classList.toggle('nnn-is-op', isOP);
     card.classList.toggle('nnn-poo-msg', poo);
     card.classList.toggle('nnn-foot-msg', foot);
+    card.classList.toggle('nnn-clock-msg', clk);
     card.classList.toggle('nnn-king-msg', king);
     card.classList.toggle('nnn-op-msg', isOP && opOn);
     if (reg) { card.setAttribute('data-nnn-reg', info.regiment); card.style.setProperty('--nnn-c', reg.color); }
@@ -2199,10 +2276,139 @@
     return el;
   }
 
+  /* ======================================================================
+   *  CÉLÉBRATION DE FIN (1er décembre, minuit) : écran de félicitations + feux d'artifice + diplôme
+   * ==================================================================== */
+  const TAU = Math.PI * 2;
+  const CELEB_AT = () => new Date(2026, 11, 1, 0, 0, 0);
+  const celebReached = () => new Date() >= CELEB_AT();
+  function myPseudo() {
+    const m = GM_getValue('myPseudo', ''); if (m) return norm(m);
+    const e = document.querySelector('.headerAccount__pseudo'); return e ? norm(e.textContent) : '';
+  }
+  const Cel = { el: null, raf: 0, parts: [], rockets: [], flashes: [], W: 0, H: 0, dpr: 1, cv: null, g: null, timer: 0, t0: 0, last: 0, snd: false, ac: null, preview: false };
+  const CEL_COLORS = ['#ffd34d', '#ffe9a0', '#ff4d3d', '#6dff4a', '#4d9dff', '#ff5ad1', '#4dfff0', '#ffffff', '#ff9a2e'];
+
+  function celSound(kind) {
+    if (!Cel.snd) return;
+    try {
+      const c = Cel.ac; if (!c || c.state !== 'running') return; const now = c.currentTime;
+      if (kind === 'boom') {
+        const len = Math.floor(c.sampleRate * .9), b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+        const s = c.createBufferSource(), lp = c.createBiquadFilter(), g = c.createGain(); s.buffer = b; lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, now); lp.frequency.exponentialRampToValueAtTime(90, now + .7);
+        g.gain.value = .5; s.connect(lp); lp.connect(g); g.connect(c.destination); s.start(now);
+      } else {
+        const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(380, now); o.frequency.exponentialRampToValueAtTime(1500, now + .55); g.gain.setValueAtTime(.025, now); g.gain.linearRampToValueAtTime(0, now + .56); o.connect(g); g.connect(c.destination); o.start(now); o.stop(now + .6);
+      }
+    } catch (e) { /* pas de son */ }
+  }
+  function celLaunch(x) {
+    const { W, H } = Cel, sc = Math.min(W, H) / 800;
+    Cel.rockets.push({ x: x === undefined ? W * (.12 + Math.random() * .76) : x, y: H + 8, vx: (Math.random() - .5) * 1.1, vy: -(9.5 + Math.random() * 3.2) * Math.max(.7, H / 800), ty: H * (.14 + Math.random() * .32), col: CEL_COLORS[Math.floor(Math.random() * CEL_COLORS.length)], tr: [], sc });
+    celSound('whistle');
+  }
+  function celExplode(x, y, col, sc) {
+    celSound('boom');
+    const kinds = ['sphere', 'sphere', 'ring', 'heart', 'star', 'willow', 'double'], kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const col2 = CEL_COLORS[Math.floor(Math.random() * CEL_COLORS.length)];
+    const add = (vx, vy, c, life, o) => Cel.parts.push(Object.assign({ x, y, vx, vy, c, life, max: life, s: 1.6 * Math.max(.8, sc), tr: [] }, o || {}));
+    const n = reduceMotionCel() ? 50 : 110 + Math.floor(Math.random() * 60), V = 5.2 * sc;
+    if (kind === 'ring') for (let i = 0; i < n; i++) { const a = i / n * TAU; add(Math.cos(a) * V, Math.sin(a) * V, col, 70 + Math.random() * 14); }
+    else if (kind === 'heart') for (let i = 0; i < n; i++) { const t = i / n * TAU, hx = 16 * Math.pow(Math.sin(t), 3), hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)); add(hx * V / 16, hy * V / 16, '#ff5a8a', 82); }
+    else if (kind === 'star') for (let i = 0; i < n; i++) { const a = i / n * TAU, r = (Math.floor(i / n * 10) % 2 ? .5 : 1) * (.55 + .45 * Math.abs(Math.cos(a * 2.5))); add(Math.cos(a) * V * r * 1.1, Math.sin(a) * V * r * 1.1, '#ffe27a', 80); }
+    else if (kind === 'willow') for (let i = 0; i < n; i++) { const a = Math.random() * TAU, sp = Math.pow(Math.random(), .6) * V * .9; add(Math.cos(a) * sp, Math.sin(a) * sp, '#ffcf5a', 130 + Math.random() * 40, { g: .045, dr: .975 }); }
+    else if (kind === 'double') for (let i = 0; i < n; i++) { const a = Math.random() * TAU, inner = i % 3 === 0, sp = (inner ? .5 : 1) * V * (.8 + Math.random() * .25); add(Math.cos(a) * sp, Math.sin(a) * sp, inner ? col2 : col, 74 + Math.random() * 20); }
+    else for (let i = 0; i < n; i++) { const a = Math.random() * TAU, sp = Math.pow(Math.random(), .5) * V; add(Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < .25 ? '#ffffff' : col, 64 + Math.random() * 30, Math.random() < .12 ? { crackle: true } : null); }
+    Cel.flashes.push({ x, y, r: 150 * sc, a: .5, c: col });
+  }
+  function reduceMotionCel() { return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  function celFrame(ts) {
+    if (!Cel.el) return;
+    const dt = Math.min(2.5, (ts - Cel.last) / 16.667 || 1); Cel.last = ts; const g = Cel.g, { W, H } = Cel;
+    // fondu vers le noir : traîne des étincelles
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,' + Math.min(.5, .22 * dt) + ')'; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'lighter';
+    for (let i = Cel.flashes.length - 1; i >= 0; i--) { const f = Cel.flashes[i], gr = g.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r); gr.addColorStop(0, f.c + '99'); gr.addColorStop(1, f.c + '00'); g.globalAlpha = f.a; g.fillStyle = gr; g.fillRect(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2); f.a -= .06 * dt; if (f.a <= 0) Cel.flashes.splice(i, 1); }
+    g.globalAlpha = 1;
+    for (let i = Cel.rockets.length - 1; i >= 0; i--) {
+      const r = Cel.rockets[i]; r.tr.push([r.x, r.y]); if (r.tr.length > 9) r.tr.shift(); r.x += r.vx * dt; r.y += r.vy * dt; r.vy += .11 * dt * Math.max(.7, H / 800);
+      g.strokeStyle = '#ffe8b0'; g.lineWidth = 2; g.beginPath(); r.tr.forEach((p, k) => { g.globalAlpha = k / r.tr.length; k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke(); g.globalAlpha = 1;
+      if (r.vy > -1.4 || r.y <= r.ty) { celExplode(r.x, r.y, r.col, r.sc); Cel.rockets.splice(i, 1); }
+    }
+    for (let i = Cel.parts.length - 1; i >= 0; i--) {
+      const p = Cel.parts[i]; p.tr.push(p.x, p.y); if (p.tr.length > 8) p.tr.splice(0, 2);
+      p.vx *= Math.pow(p.dr || .985, dt); p.vy = p.vy * Math.pow(p.dr || .985, dt) + (p.g || .06) * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+      const a = Math.max(0, p.life / p.max); g.globalAlpha = a < .3 ? a / .3 : 1; g.strokeStyle = p.c; g.lineWidth = p.s * (.6 + a * .6); g.lineCap = 'round';
+      g.beginPath(); g.moveTo(p.tr[0], p.tr[1]); for (let k = 2; k < p.tr.length; k += 2) g.lineTo(p.tr[k], p.tr[k + 1]); g.lineTo(p.x, p.y); g.stroke();
+      if (p.crackle && p.life < 14 && Math.random() < .35) Cel.parts.push({ x: p.x, y: p.y, vx: (Math.random() - .5) * 3, vy: (Math.random() - .5) * 3, c: '#fff', life: 16, max: 16, s: 1.2, tr: [] });
+      if (p.life <= 0) Cel.parts.splice(i, 1);
+    }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    if (Cel.parts.length > 2600) Cel.parts.splice(0, Cel.parts.length - 2600);
+    Cel.raf = requestAnimationFrame(celFrame);
+  }
+  function celSchedule() {
+    clearTimeout(Cel.timer); if (!Cel.el) return;
+    const t = (performance.now() - Cel.t0) / 1000, volley = Math.floor(t / 7) !== Math.floor((t - .9) / 7) && t > 6;
+    if (volley && !reduceMotionCel()) for (let i = 0; i < 6; i++) setTimeout(() => Cel.el && celLaunch(Cel.W * (.1 + i * .16)), i * 140); else celLaunch();
+    Cel.timer = setTimeout(celSchedule, reduceMotionCel() ? 2400 : 480 + Math.random() * 620);
+  }
+  function celClose() {
+    if (!Cel.el) return; cancelAnimationFrame(Cel.raf); clearTimeout(Cel.timer); Cel.el.remove(); Cel.el = null; Cel.parts = []; Cel.rockets = []; Cel.flashes = [];
+    document.documentElement.style.overflow = ''; try { if (Cel.ac) Cel.ac.close(); } catch (e) { /* rien */ } Cel.ac = null; Cel.snd = false;
+  }
+  function celStats() {
+    const me = myPseudo(), names = [...new Set([...Object.keys(sheetData), ...Object.keys(overrides)])], infos = names.map((p) => ({ p, i: infoFor(p) }));
+    const total = infos.length, alive = infos.filter((x) => !x.i.dead).length, known = !!me && names.includes(me), mine = known ? infoFor(me) : null;
+    const st = standings(), lead = st[0] && st[0].total ? st[0] : null, reg = mine && mine.regiment ? REGIMENTS[mine.regiment] : null;
+    let bud = null; if (mine && mine.buddy) { const bi = infoFor(mine.buddy); bud = { name: (sheetData[mine.buddy] && sheetData[mine.buddy].name) || mine.buddyName || mine.buddy, alive: !bi.dead, key: mine.buddy }; }
+    return { me, known, mine, total, alive, lead, reg, bud, msgs: me ? (totals[me] || 0) : 0, name: me ? disp(me) : '' };
+  }
+  function celebrate(preview) {
+    if (Cel.el) return; Cel.preview = !!preview;
+    const S = celStats(), alive = S.known && !S.mine.dead, fallen = S.known && S.mine.dead;
+    const el = document.createElement('div'); el.className = 'nnn-cel'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+    const title = fallen ? `<span>BRAVO POUR TON COURAGE,</span> TU AS FAIT VIVRE LE <em>NO NUT NOVEMBER 2026</em>`
+      : S.known ? `<span>FÉLICITATIONS,</span> TU AS SURVÉCU AU <em>NO NUT NOVEMBER 2026</em>`
+        : `<span>FÉLICITATIONS</span> AUX SURVIVANTS DU <em>NO NUT NOVEMBER 2026</em>`;
+    const rate = S.total ? Math.round(S.alive / S.total * 100) : 0, c = [];
+    c.push(`<div class="b"><b>${S.alive}</b><small>survivants sur ${S.total}</small></div>`, `<div class="b"><b>${rate}%</b><small>ont tenu jusqu'au bout</small></div>`);
+    if (S.lead) c.push(`<div class="b" style="--c:${REGIMENTS[S.lead.i].color}"><img src="${REGIMENTS[S.lead.i].logo}" alt=""><small>${REGIMENTS[S.lead.i].name} en tête · ${S.lead.alive} survivant${S.lead.alive > 1 ? 's' : ''}</small></div>`);
+    if (S.known && S.msgs) c.push(`<div class="b"><b>${S.msgs}</b><small>messages postés</small></div>`);
+    const sub = alive ? `${esc(S.name)} · ${S.reg ? esc(S.reg.name) : 'sans régiment'}${S.mine.matricule ? ' · #' + esc(S.mine.matricule) : ''}` : fallen ? `${esc(S.name)} · tombé au combat${S.mine.date ? ' le ' + esc(S.mine.date) : ''}, mais jamais oublié` : '30 jours, 4 régiments, une seule torche à garder allumée';
+    const bud = S.bud ? `<div class="bud">🤝 ${S.bud.alive ? `Ton binôme <b>${esc(S.bud.name)}</b> a survécu lui aussi !` : `Ton binôme <b>${esc(S.bud.name)}</b> est tombé, mais vous avez tenu ensemble.`}</div>` : '';
+    el.innerHTML = `<canvas></canvas><div class="in"><div class="logos">${[1, 2, 3, 4].map((i) => `<img src="${REGIMENTS[i].logo}" alt="">`).join('')}</div><h1>${title}</h1><p class="sub">${sub}</p><div class="stats">${c.join('')}</div>${bud}
+      <div class="btns"><button type="button" data-a="more">🎆 Encore des feux d'artifice</button>${S.known ? '<button type="button" data-a="copy">📋 Copier mon message</button>' : ''}<button type="button" data-a="snd">🔇 Son</button><button type="button" data-a="close" class="pri">Continuer</button></div>${preview ? '<div class="pv">Aperçu — la vraie célébration s\'affichera le 1er décembre à minuit.</div>' : ''}</div>`;
+    document.body.appendChild(el); document.documentElement.style.overflow = 'hidden'; Cel.el = el; Cel.cv = el.querySelector('canvas'); Cel.g = Cel.cv.getContext('2d');
+    const fit = () => { Cel.dpr = Math.min(2, window.devicePixelRatio || 1); Cel.W = el.clientWidth; Cel.H = el.clientHeight; Cel.cv.width = Cel.W * Cel.dpr; Cel.cv.height = Cel.H * Cel.dpr; Cel.g.setTransform(Cel.dpr, 0, 0, Cel.dpr, 0, 0); };
+    fit(); window.addEventListener('resize', fit);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Escape') celClose(); }); el.tabIndex = -1; el.focus();
+    el.querySelector('[data-a=close]').onclick = celClose;
+    el.querySelector('[data-a=more]').onclick = () => { for (let i = 0; i < 7; i++) setTimeout(() => Cel.el && celLaunch(Cel.W * (.08 + i * .14)), i * 120); };
+    el.querySelector('[data-a=snd]').onclick = (e) => { Cel.snd = !Cel.snd; e.target.textContent = Cel.snd ? '🔊 Son' : '🔇 Son'; if (Cel.snd && !Cel.ac) { try { Cel.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (er) { Cel.snd = false; } } if (Cel.ac) Cel.ac.resume(); };
+    const cp = el.querySelector('[data-a=copy]'); if (cp) cp.onclick = () => { const txt = alive ? `🔥 J'ai survécu au No Nut November 2026 ! ${S.reg ? S.reg.name + ' · ' : ''}${S.alive} survivants sur ${S.total}. Félicitations aux kheys qui ont tenu 💪` : `🕯 Tombé au combat, mais fier d'avoir participé au No Nut November 2026 !`; try { navigator.clipboard.writeText(txt).then(() => { cp.textContent = '✅ Copié !'; }, () => { prompt('Copie ce message :', txt); }); } catch (e) { prompt('Copie ce message :', txt); } };
+    Cel.t0 = performance.now(); Cel.last = performance.now(); Cel.raf = requestAnimationFrame(celFrame);
+    for (let i = 0; i < 4; i++) setTimeout(() => Cel.el && celLaunch(Cel.W * (.2 + i * .2)), 250 + i * 260);
+    Cel.timer = setTimeout(celSchedule, 1800);
+  }
+  function checkCelebration() {
+    if (Cel.el || !celebReached() || GM_getValue('celebSeen', 0)) return;
+    if (document.hidden) return;
+    GM_setValue('celebSeen', 1); celebrate(false);
+  }
+  (function planCelebration() {
+    const ms = CELEB_AT() - new Date();
+    if (ms > 0 && ms < 2147000000) setTimeout(() => { refreshSheet(true).then(() => { refreshAll(); checkCelebration(); }); }, ms + 500);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkCelebration(); });
+    setInterval(checkCelebration, 30000); setTimeout(checkCelebration, 3000);
+  })();
+
   let lastPanelHtml = '';
   const THEME_OPTS = [
     { k: 'op', label: '👑 Isssoufle — thème de l\'OP', sub: 'Fond sombre doré sur ses messages', get: () => opOn, set: (v) => { opOn = v; GM_setValue('opOn', v); } },
     { k: 'king', label: '⚜ Kaaido — Père fondateur', sub: 'Cape royale, portrait et médailles des éditions', get: () => kingOn, set: (v) => { kingOn = v; GM_setValue('kingOn', v); } },
+    { k: 'clock', label: '⏱ Prolissou — thème horloges', sub: 'Saloon, horloges qui tournent et pseudo bordeaux', get: () => clockOn, set: (v) => { clockOn = v; GM_setValue('clockOn', v); } },
     { k: 'foot', label: '🦶 Levodpa2 — thème pieds', sub: 'Parquet, pieds et pseudo rose', get: () => footOn, set: (v) => { footOn = v; GM_setValue('footOn', v); } },
   ];
   function renderPanel() {
@@ -2232,7 +2438,7 @@
         return `<div class="nnn-reg" style="--c:${REGIMENTS[i].color}">${leader === i ? '<span class="nnn-lead">👑 En tête</span>' : ''}<img src="${REGIMENTS[i].logo}" alt=""><div><b>${REGIMENTS[i].name}</b><div class="nnn-rb"><i style="width:${pct}%"></i></div><small>${st[i][0]} en vie · ${st[i][1]} ☠</small></div></div>`;
       }).join('') + `</div>`;
       const btn = (v, label, extra) => `<button data-view="${v}" class="${view === v ? 'on' : ''} ${extra || ''}">${label}</button>`;
-      html += `<div class="nnn-pbody">${btn('rank', '🏆 Classement')}${btn('charts', '📈 Courbes')}${btn('wall', `🪦 Les disparus (${dead})`)}${btn('final', reached || finalPreview ? '🏅 Podium final' : '🔒 Podium final', reached || finalPreview ? '' : 'off')}</div>`;
+      html += `<div class="nnn-pbody">${btn('rank', '🏆 Classement')}${btn('charts', '📈 Courbes')}${btn('wall', `🪦 Les disparus (${dead})`)}${celebReached() ? '<button data-celeb="1">🎆 Célébration</button>' : ''}${btn('final', reached || finalPreview ? '🏅 Podium final' : '🔒 Podium final', reached || finalPreview ? '' : 'off')}</div>`;
       if (lastSync) html += `<div class="nnn-sync">🔄 GDOC synchronisé à ${new Date(lastSync).toLocaleTimeString('fr-FR')}</div>`;
       if (gdocInfo) html += `<div class="nnn-warn">${esc(gdocInfo)}</div>`;
       if (!sheetUrl) html += `<div class="nnn-warn">⚠ GDOC non configuré (menu Tampermonkey → « Définir l'URL du GDOC »)</div>`;
@@ -2258,6 +2464,7 @@
       const gear = box.querySelector('#nnn-gear');
       if (gear) gear.onclick = (e) => { e.stopPropagation(); settingsOpen = !settingsOpen; if (settingsOpen && !panelOpen) panelOpen = true; renderPanel(); };
       box.querySelectorAll('[data-theme-opt]').forEach((c) => { c.onchange = () => { THEME_OPTS.find((o) => o.k === c.dataset.themeOpt).set(c.checked); refreshAll(); }; });
+      const cb = box.querySelector('[data-celeb]'); if (cb) cb.onclick = () => celebrate(false);
       box.querySelectorAll('[data-wmode]').forEach((b) => { b.onclick = () => { wallMode = b.dataset.wmode; GM_setValue('wallMode', wallMode); renderPanel(); }; });
       box.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { rankTab = b.dataset.tab; renderPanel(); }; });
       box.querySelectorAll('[data-chart]').forEach((b) => { b.onclick = () => { chartKind = b.dataset.chart; renderPanel(); }; });
@@ -2307,6 +2514,10 @@
     footOn = !footOn; GM_setValue('footOn', footOn); refreshAll();
     document.querySelectorAll('[data-nnn-p]').forEach((el) => tagify(el, el.dataset.nnnP));
   });
+  GM_registerMenuCommand('Thème « horloges » (Prolissou) : ON/OFF', () => {
+    clockOn = !clockOn; GM_setValue('clockOn', clockOn); refreshAll();
+    document.querySelectorAll('[data-nnn-p]').forEach((el) => tagify(el, el.dataset.nnnP));
+  });
   GM_registerMenuCommand('Thème « Fondateur » (Kaaido) : ON/OFF', () => {
     kingOn = !kingOn; GM_setValue('kingOn', kingOn); refreshAll();
     document.querySelectorAll('[data-nnn-p]').forEach((el) => tagify(el, el.dataset.nnnP));
@@ -2314,6 +2525,8 @@
   GM_registerMenuCommand('Recompter tous les messages', () => { counts = { pages: {} }; totals = {}; save('counts_' + TOPIC_ID, counts); crawl(); });
   GM_registerMenuCommand('Ouvrir le classement des messages', () => { view = 'rank'; panelOpen = true; renderPanel(); });
   GM_registerMenuCommand('Ouvrir le mur des disparus', () => { view = 'wall'; panelOpen = true; renderPanel(); });
+  GM_registerMenuCommand('Aperçu de la célébration de fin', () => celebrate(true));
+  GM_registerMenuCommand('Définir mon pseudo (célébration)', () => { const v = prompt('Ton pseudo JVC (détecté automatiquement si tu es connecté) :', GM_getValue('myPseudo', '') || myPseudo()); if (v !== null) GM_setValue('myPseudo', v.trim()); });
   GM_registerMenuCommand('Plage des éteints en plein écran', () => { view = 'wall'; wallMode = 'beach'; panelOpen = true; renderPanel(); setTimeout(() => Beach.fullscreen(true), 80); });
   GM_registerMenuCommand('Ouvrir les courbes (éliminations / messages)', () => { view = 'charts'; panelOpen = true; renderPanel(); });
   GM_registerMenuCommand('Aperçu du podium final (test)', () => { finalPreview = true; view = 'final'; panelOpen = true; lastPanelHtml = ''; renderPanel(); });
